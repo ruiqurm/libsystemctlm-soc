@@ -22,10 +22,10 @@ enum byp_ctl {
   STOP,
 };
 
-class tlm2xdma_c2h_byp_bridge : public sc_core::sc_module {
+class tlm2xdma_desc_bypass_bridge : public sc_core::sc_module {
 public:
-  tlm_utils::simple_initiator_socket<tlm2xdma_c2h_byp_bridge> init_socket;
-  SC_HAS_PROCESS(tlm2xdma_c2h_byp_bridge);
+  tlm_utils::simple_initiator_socket<tlm2xdma_desc_bypass_bridge> init_socket;
+  SC_HAS_PROCESS(tlm2xdma_desc_bypass_bridge);
   sc_in<bool> clk;
   // In XDMA document diagram, resetn is not used. Maybe add it later?
   // sc_in<bool> resetn;
@@ -35,19 +35,24 @@ public:
   sc_in<sc_bv<64>> dsc_byp_dst_addr;
   sc_in<sc_bv<16>> dsc_byp_ctl;
   sc_out<bool> dsc_byp_ready;
+  
 
-  tlm2xdma_c2h_byp_bridge(sc_core::sc_module_name name)
+  tlm2xdma_desc_bypass_bridge(sc_core::sc_module_name name,bool h2c)
       : sc_module(name), init_socket("init_socket"),
         dsc_byp_load("dsc_byp_load"), dsc_byp_src_addr("dsc_byp_src_addr"),
         dsc_byp_len("dsc_byp_len"), dsc_byp_dst_addr("dsc_byp_dst_addr"),
-        dsc_byp_ctl("dsc_byp_ctl"), dsc_byp_ready("dsc_byp_ready") {
+        dsc_byp_ctl("dsc_byp_ctl"), dsc_byp_ready("dsc_byp_ready"),
+        h2c(h2c) {
     SC_THREAD(handle_signal);
   }
   void handle_signal() {
     tlm::tlm_generic_payload gp;
     sc_time delay(SC_ZERO_TIME);
-
-    gp.set_command(tlm::TLM_WRITE_COMMAND);
+    if (h2c){
+      gp.set_command(tlm::TLM_READ_COMMAND);
+    }else{
+      gp.set_command(tlm::TLM_WRITE_COMMAND);
+    }
     dsc_byp_ready->write(true);
     while (true) {
       wait(clk->posedge_event());
@@ -82,53 +87,47 @@ public:
   }
 
 private:
+  bool h2c;
 };
 
-class tlm2xdma_h2c_byp_bridge : public sc_core::sc_module {
-public:
-  tlm_utils::simple_target_socket<tlm2xdma_h2c_byp_bridge> tgt_socket;
-  SC_HAS_PROCESS(tlm2xdma_h2c_byp_bridge);
-  sc_in<bool> clk;
-  sc_out<bool> dsc_byp_load;
-  sc_out<sc_bv<64>> dsc_byp_src_addr;
-  sc_out<sc_bv<28>> dsc_byp_len;
-  sc_out<sc_bv<64>> dsc_byp_dst_addr;
-  sc_out<sc_bv<16>> dsc_byp_ctl;
-  sc_in<bool> dsc_byp_ready;
-  tlm2xdma_h2c_byp_bridge(sc_core::sc_module_name name)
-      : sc_module(name), tgt_socket("tgt_socket"), dsc_byp_load("dsc_byp_load"),
-        dsc_byp_src_addr("dsc_byp_src_addr"), dsc_byp_len("dsc_byp_len"),
-        dsc_byp_dst_addr("dsc_byp_dst_addr"), dsc_byp_ctl("dsc_byp_ctl"),
-        dsc_byp_ready("dsc_byp_ready") {
-    tgt_socket.register_b_transport(
-        this, &tlm2xdma_h2c_byp_bridge::tgt_socket_b_transport);
-  }
-  void tgt_socket_b_transport(tlm::tlm_generic_payload &trans, sc_time &delay) {
-    while (true) {
-      wait(clk.posedge_event());
-      dsc_byp_load.write(true);
-
-      if (dsc_byp_ready.read() && dsc_byp_load->read()) {
-        // after handshake, translate them to signals
-        auto dst = trans.get_address();
-        auto len = trans.get_data_length();
-        auto src = trans.get_data_ptr();
-        switch (trans.get_command()) {
-        case tlm::TLM_WRITE_COMMAND:
-          dsc_byp_src_addr.write((uint64_t)src);
-          dsc_byp_len.write(len);
-          dsc_byp_dst_addr.write(dst);
-          dsc_byp_ctl.write(0x1);
-          wait(clk.posedge_event());
-          dsc_byp_load.write(false);
-          break;
-
-        default:
-          SC_REPORT_ERROR("tlm2xdma_h2c_byp_bridge", "unsupported command");
-        }
-      }
-    }
-  }
-};
+// class tlm2xdma_h2c_byp_bridge : public sc_core::sc_module {
+// public:
+//   tlm_utils::simple_target_socket<tlm2xdma_h2c_byp_bridge> tgt_socket;
+//   SC_HAS_PROCESS(tlm2xdma_h2c_byp_bridge);
+//   sc_in<bool> clk;
+//   sc_out<bool> dsc_byp_load;
+//   sc_out<sc_bv<64>> dsc_byp_src_addr;
+//   sc_out<sc_bv<28>> dsc_byp_len;
+//   sc_out<sc_bv<64>> dsc_byp_dst_addr;
+//   sc_out<sc_bv<16>> dsc_byp_ctl;
+//   sc_in<bool> dsc_byp_ready;
+//   tlm2xdma_h2c_byp_bridge(sc_core::sc_module_name name)
+//       : sc_module(name), tgt_socket("tgt_socket"), dsc_byp_load("dsc_byp_load"),
+//         dsc_byp_src_addr("dsc_byp_src_addr"), dsc_byp_len("dsc_byp_len"),
+//         dsc_byp_dst_addr("dsc_byp_dst_addr"), dsc_byp_ctl("dsc_byp_ctl"),
+//         dsc_byp_ready("dsc_byp_ready") {
+//     tgt_socket.register_b_transport(
+//         this, &tlm2xdma_h2c_byp_bridge::tgt_socket_b_transport);
+//   }
+//   void tgt_socket_b_transport(tlm::tlm_generic_payload &trans, sc_time &delay) {
+//     auto dst = trans.get_address();
+//     auto len = trans.get_data_length();
+//     auto src = trans.get_data_ptr();
+//     dsc_byp_load.write(true);
+//     dsc_byp_src_addr.write((uint64_t)src);
+//     dsc_byp_len.write(len);
+//     dsc_byp_dst_addr.write(dst);
+//     dsc_byp_ctl.write(0x0);
+//     while (true) {
+//       wait(clk.posedge_event());
+//       if (dsc_byp_ready.read() && dsc_byp_load->read()) {
+//         // after handshake, translate them to signals
+//         trans.set_response_status(tlm::TLM_OK_RESPONSE);
+//         dsc_byp_load.write(false);
+//         return;
+//       }
+//     }
+//   }
+// };
 
 #endif
