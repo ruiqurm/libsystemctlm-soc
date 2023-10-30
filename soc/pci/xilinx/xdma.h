@@ -208,6 +208,8 @@ private:
   void handle_h2c_desc_bypass(void){
       while(true){
         xdma_bypass_desc* desc = h2c_queue.read();
+        // print desc src addr,dst addr,len
+        printf("src addr : %lld, dst addr : %lld, len : %lld\n", desc->src_addr, desc->dst_addr, desc->len);
         do_h2c_dma(desc->src_addr, desc->dst_addr, desc->len);
       }
   }
@@ -343,35 +345,6 @@ private:
   void user_bar_b_transport(tlm::tlm_generic_payload &trans, sc_time &delay) {
     // we handle the user bar here
   }
-
-  // int handle_target_config(bool is_read,int addr,int &value){
-  //    switch (addr) {
-  //     case 0:
-  //       if (is_read){
-          
-  //         return 0;
-  //       }else{
-  //         return -1;
-  //       }
-  //    }
-  // }
-  // Map usr_irq_reqv onto the PCI Base class.
-  //
-  // For now, this is a direct mapping on to the PCI base IRQ vector.
-  // In the future we may want to implement our own mapping
-  // to MSI/MSI-X without relying on QEMU doing that for us.
-  // void handle_irqv(void) {
-  // 	int i;
-
-  // 	while (true) {
-  // 		// Wait for sensitivity on any usr_irqv[]
-  // 		wait();
-
-  // 		for (i = 0; i < NUM_USR_IRQ; i++) {
-  // 			irq[i] = usr_irq_reqv[i];
-  // 		}
-  // 	}
-  // }
 };
 
 class xdma_user_logic : public sc_module{
@@ -388,6 +361,7 @@ class xdma_user_logic : public sc_module{
     uint64_t dst_addr;
 
     uint32_t h2c_counter = 0;
+    uint32_t descriptor_counter = 0;
 
     xdma_user_logic(sc_core::sc_module_name name):
       c2h_data("c2h-data"),
@@ -395,7 +369,8 @@ class xdma_user_logic : public sc_module{
       c2h_desc("c2h-desc"),
       h2c_desc("h2c-desc"),
       src_addr(0),
-      dst_addr(0)
+      dst_addr(0),
+      descriptor_counter(0)
     {
       h2c_data.register_b_transport(this,&xdma_user_logic::h2c_data_b_transport);
       user_bar.register_b_transport(this,&xdma_user_logic::user_bar_b_transport);
@@ -460,14 +435,18 @@ class xdma_user_logic : public sc_module{
 
         // print debug info
         assert(length <= AXI_DATA_WIDTH / 8);
-        memcpy(data + h2c_counter , ptr , length);
+        // printf("descriptor_counter=%d, h2c_counter=%d, length=%d, eop=%d\n", descriptor_counter, h2c_counter, length, eop);
+        memcpy(data + descriptor_counter*1024 + h2c_counter , ptr , length);
         h2c_counter += length;
         trans.set_response_status(tlm::TLM_OK_RESPONSE);
         if (eop){
+          printf("eop = 1\n");
           h2c_counter = 0;
-          display_data();
-          send_c2h();
-
+          descriptor_counter += 1;
+          if (descriptor_counter == 4){
+            display_data();
+            send_c2h();
+          }
         }
     }
 
@@ -476,11 +455,28 @@ class xdma_user_logic : public sc_module{
       sc_time delay = SC_ZERO_TIME;
       desc.set_command(tlm::TLM_READ_COMMAND);
       desc.set_address(0X0);
-      desc.set_data_ptr((unsigned char *)src_addr);
+      desc.set_streaming_width(1024);
+      desc.set_data_length(1024);
+
+      for(int i=0;i<4;i++){
+        desc.set_data_ptr((unsigned char *)src_addr + 1024*i);
+        h2c_desc->b_transport(desc,delay);
+        if (desc.get_response_status() != tlm::TLM_OK_RESPONSE){
+          SC_REPORT_ERROR("xdma", "dma_proxy_b_transport:error while pushing the data");
+        }
+      }
+
+    }
+    void send_c2h(){
+      tlm::tlm_generic_payload desc;
+      sc_time delay = SC_ZERO_TIME;
+      desc.set_command(tlm::TLM_WRITE_COMMAND);
+      desc.set_address(dst_addr);
+      desc.set_data_ptr((unsigned char *)0x0);
       desc.set_streaming_width(4096);
       desc.set_data_length(4096);
-
-      h2c_desc->b_transport(desc,delay);
+      printf("send_c2h\n");
+      c2h_desc->b_transport(desc,delay);
       if (desc.get_response_status() != tlm::TLM_OK_RESPONSE){
         SC_REPORT_ERROR("xdma", "dma_proxy_b_transport:error while pushing the data");
       }
@@ -496,20 +492,6 @@ class xdma_user_logic : public sc_module{
         c2h_data->b_transport(desc,delay);
       }
     }
-    void send_c2h(){
-      tlm::tlm_generic_payload desc;
-      sc_time delay = SC_ZERO_TIME;
-      desc.set_command(tlm::TLM_WRITE_COMMAND);
-      desc.set_address(dst_addr);
-      desc.set_data_ptr((unsigned char *)0x0);
-      desc.set_streaming_width(4096);
-      desc.set_data_length(4096);
-      printf("send_c2h\n");
-      c2h_desc->b_transport(desc,delay);
-      if (desc.get_response_status() != tlm::TLM_OK_RESPONSE){
-        SC_REPORT_ERROR("xdma", "dma_proxy_b_transport:error while pushing the data");
-      }
-    }
     void display_data(){
       for (int i = 0; i < 4096; ++i) {
         printf("%02x", (unsigned char)data[i] & 0xff);
@@ -518,21 +500,6 @@ class xdma_user_logic : public sc_module{
   private:
     char data[4096];
 };
-
-// class xdma_user_logic : public sc_module {
-// public:
-//   SC_HAS_PROCESS(xdma_user_logic);
-//   sc_in<bool> clk;
-//   sc_out<bool> c2h_dsc_byp_load;
-//   sc_out<sc_bv<64>> c2h_dsc_byp_src_addr;
-//   sc_out<sc_bv<28>> c2h_dsc_byp_len;
-//   sc_out<sc_bv<64>> c2h_dsc_byp_dst_addr;
-//   sc_out<sc_bv<16>> c2h_dsc_byp_ctl;
-//   sc_in<bool> c2h_dsc_byp_ready;
-
-//   xdma_user_logic(sc_core::sc_module_name name) {
-//     // We do nothing currently
-//   }
 
 // private:
 //   void receive_bypass_descriptor() {
