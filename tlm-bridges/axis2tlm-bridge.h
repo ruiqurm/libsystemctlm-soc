@@ -25,6 +25,7 @@
 
 #ifndef AXIS2TLM_BRIDGE_H__
 #define AXIS2TLM_BRIDGE_H__
+#include "tlm_utils/simple_initiator_socket.h"
 #define SC_INCLUDE_DYNAMIC_PROCESSES
 
 #include "tlm-bridges/amba.h"
@@ -149,7 +150,6 @@ private:
 							if (tlast.read() && i == last_byte) {
 								genattr->set_eop();
 							}
-
 							run_tlm(gp, pos);
 
 							genattr->set_eop(false);

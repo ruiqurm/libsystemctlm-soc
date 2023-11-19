@@ -25,6 +25,7 @@
 
 #ifndef TLM2AXIS_BRIDGE_H__
 #define TLM2AXIS_BRIDGE_H__
+#include "tlm_utils/simple_target_socket.h"
 #define SC_INCLUDE_DYNAMIC_PROCESSES
 
 #include "tlm-bridges/amba.h"

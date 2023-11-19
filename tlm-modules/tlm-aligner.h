@@ -23,6 +23,7 @@
 #ifndef TLM_ALIGNER_H__
 #define TLM_ALIGNER_H__
 
+#include "tlm_utils/simple_target_socket.h"
 #include <stdint.h>
 
 #define D(x)
