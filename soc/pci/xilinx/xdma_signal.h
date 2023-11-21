@@ -48,26 +48,25 @@ Note: Should be edited by script
 #define DMA_ADDR_WIDTH 64
 #define DMA_DATA_WIDTH_IN_BYTES 32
 
-using namespace sc_core;
 
 // Note thate OUT_TYPE means sc_out<OUT_TYPE>, which needs to be sent to pin `in`,vice versa.
-template <typename OUT_TYPE, typename IN_TYPE, IN_TYPE (*converter)(OUT_TYPE)>
+template <typename OUT_TYPE, typename IN_TYPE, IN_TYPE (*CONVERTER)(OUT_TYPE)>
 class type_adapter : public sc_core::sc_module {
  public:
   SC_HAS_PROCESS(type_adapter);
   sc_signal<OUT_TYPE> out_pin_signal;
   sc_signal<IN_TYPE> in_pin_signal;
-  type_adapter(sc_core::sc_module_name name) : sc_module(name) {
+  explicit type_adapter(sc_core::sc_module_name name) : sc_module(name) {
     SC_METHOD(convert);
-    sensitive << in;
-    in(out_pin_signal);
-    out(in_pin_signal);
+    sensitive << in_;
+    in_(out_pin_signal);
+    out_(in_pin_signal);
   }
 
  private:
-  sc_in<OUT_TYPE> in;
-  sc_out<IN_TYPE> out;
-  void convert() { out.write(converter(in.read())); }
+  sc_in<OUT_TYPE> in_;
+  sc_out<IN_TYPE> out_;
+  void convert() { out_.write(CONVERTER(in_.read())); }
 };
 
 template <unsigned int N>
@@ -201,7 +200,7 @@ class xdma_bypass_signal : public sc_core::sc_module {
   void connect_xdma(T& dev) {
     connect_xdma(&dev);
   }
-  xdma_bypass_signal(sc_core::sc_module_name name)
+  explicit xdma_bypass_signal(const sc_core::sc_module_name& name)
       : sc_module(name),
         xdmaChannel_h2cDescByp_load("xdmaChannel_h2cDescByp_load"),
         xdmaChannel_h2cDescByp_src_addr("xdmaChannel_h2cDescByp_src_addr"),
@@ -328,7 +327,7 @@ class xdma_signal : public sc_core::sc_module {
     dev->axilRegBlock_wdata(axilRegBlock_wdata);
     dev->axilRegBlock_rdata(axilRegBlock_rdata);
   }
-  xdma_signal(sc_core::sc_module_name name)
+  explicit xdma_signal(const sc_core::sc_module_name& name)
       : sc_module(name),
         bypass_channel("xdma-bypass-signal"),
         // clk("clk"),resetn("reset-n"),
