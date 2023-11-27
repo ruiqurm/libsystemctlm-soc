@@ -62,16 +62,7 @@ class tlm2xdma_desc_bypass_bridge : public sc_core::sc_module {
       wait(clk->posedge_event());
 
       if (load->read() && ready->read()) {
-        // unsigned int cmd = ctl->read();
-        // sc_assert(cmd <= 4); // reserved
-        // switch (cmd) {
-        //     case byp_ctl::RUNNING:
-        //         fetch_one_more_decriptor = true;
-        //         break;
-        //     case byp_ctl::STOP:
-        //         fetch_one_more_decriptor = false;
-        //         break;
-        // }
+        // TODO: add support for control command
         uint64_t dst_addr_read = dst_addr.read().to_uint64();
         uint64_t src_addr_read = src_addr.read().to_uint64();
         unsigned int length = len.read();
