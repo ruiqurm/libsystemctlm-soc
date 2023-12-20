@@ -44,10 +44,11 @@ Note: Should be edited by script
 */
 #define BRIDGE_ADDR_WIDTH 32
 #define BRIDGE_DATA_WIDTH 32
-#define DMA_DATA_WIDTH 256
+#define DMA_DATA_WIDTH 512
 #define DMA_ADDR_WIDTH 64
-#define DMA_DATA_WIDTH_IN_BYTES 32
+#define DMA_DATA_WIDTH_IN_BYTES 64
 
+#define RDMA_DATASTREAM_WIDTH 290
 
 // Note thate OUT_TYPE means sc_out<OUT_TYPE>, which needs to be sent to pin `in`,vice versa.
 template <typename OUT_TYPE, typename IN_TYPE, IN_TYPE (*CONVERTER)(OUT_TYPE)>
@@ -200,7 +201,7 @@ class xdma_bypass_signal : public sc_core::sc_module {
   void connect_xdma(T& dev) {
     connect_xdma(&dev);
   }
-  explicit xdma_bypass_signal(const sc_core::sc_module_name& name)
+  xdma_bypass_signal(sc_core::sc_module_name name)
       : sc_module(name),
         xdmaChannel_h2cDescByp_load("xdmaChannel_h2cDescByp_load"),
         xdmaChannel_h2cDescByp_src_addr("xdmaChannel_h2cDescByp_src_addr"),
@@ -240,6 +241,8 @@ class xdma_bypass_signal : public sc_core::sc_module {
 class xdma_signal : public sc_core::sc_module {
  public:
   xdma_bypass_signal bypass_channel;
+
+  /// axil register block bridge
   sc_signal<bool> axilRegBlock_awvalid;
   type_adapter<sc_bv<AXIL_AWPROT_WIDTH>, uint32_t,
                bvn_to_uint32t<AXIL_AWPROT_WIDTH>>
@@ -273,6 +276,22 @@ class xdma_signal : public sc_core::sc_module {
       axilRegBlock_araddr_typeAdpater;
   sc_signal<sc_bv<BRIDGE_DATA_WIDTH>> axilRegBlock_wdata;
   sc_signal<sc_bv<BRIDGE_DATA_WIDTH>> axilRegBlock_rdata;
+
+  /// rdma data stream pipe
+  sc_signal<bool> en_rdma_datastream_input_put;
+  sc_signal<bool> rdy_rdma_datastream_input_put;
+  sc_signal<bool> rdy_rdma_datastream_pipeout_first;
+  sc_signal<bool> en_rdma_datastream_pipeout_deq;
+  sc_signal<bool> rdy_rdma_datastream_pipeout_deq;
+  sc_signal<bool> rdma_datastream_pipeout_notempty;
+  sc_signal<bool> rdy_rdma_datastream_pipeout_notempty;
+  sc_signal<sc_bv<RDMA_DATASTREAM_WIDTH>> rdma_datastream_input_put;
+  sc_signal<sc_bv<RDMA_DATASTREAM_WIDTH>> rdma_datastream_pipeout_first;
+
+  /// unused signals
+  sc_signal<bool> clk_gate_slowClockIfc;
+  sc_signal<bool> clk_slowClockIfc;
+
   template <typename T>
   void connect_xdma(T& dev) {
     connect_xdma(&dev);
@@ -306,7 +325,10 @@ class xdma_signal : public sc_core::sc_module {
   }
   template <typename T>
   void connect_user_logic(T* dev) {
+    // connect xdma bypass bridge
     bypass_channel.connect_user_logic(dev);
+
+    // connect axil registers block bridge
     dev->axilRegBlock_awvalid(axilRegBlock_awvalid);
     dev->axilRegBlock_awprot(axilRegBlock_awprot_typeAdpater.in_pin_signal);
     dev->axilRegBlock_awready(axilRegBlock_awready);
@@ -326,7 +348,36 @@ class xdma_signal : public sc_core::sc_module {
     dev->axilRegBlock_araddr(axilRegBlock_araddr_typeAdpater.in_pin_signal);
     dev->axilRegBlock_wdata(axilRegBlock_wdata);
     dev->axilRegBlock_rdata(axilRegBlock_rdata);
+
+    // now connect rdma data stream.
+    dev->EN_rdmaDataStreamInput_put(en_rdma_datastream_input_put);
+    dev->RDY_rdmaDataStreamInput_put(rdy_rdma_datastream_input_put);
+    dev->RDY_rdmaDataStreamPipeOut_first(rdy_rdma_datastream_pipeout_first);
+    dev->EN_rdmaDataStreamPipeOut_deq(en_rdma_datastream_pipeout_deq);
+    dev->RDY_rdmaDataStreamPipeOut_deq(rdy_rdma_datastream_pipeout_deq);
+    dev->rdmaDataStreamPipeOut_notEmpty(rdma_datastream_pipeout_notempty);
+    dev->RDY_rdmaDataStreamPipeOut_notEmpty(
+        rdy_rdma_datastream_pipeout_notempty);
+    dev->rdmaDataStreamInput_put(rdma_datastream_input_put);
+    dev->rdmaDataStreamPipeOut_first(rdma_datastream_pipeout_first);
+
+    // now connect unused signals
+    dev->CLK_GATE_slowClockIfc(clk_gate_slowClockIfc);
+    dev->CLK_slowClockIfc(clk_slowClockIfc);
   }
+  void trace(sc_trace_file* file){
+    sc_trace(file, axilRegBlock_awvalid, "axilRegBlock_awvalid");
+    sc_trace(file,axilRegBlock_awready,"axilRegBlock_awready");
+    sc_trace(file,axilRegBlock_wvalid,"axilRegBlock_wvalid");
+    sc_trace(file,axilRegBlock_wready,"axilRegBlock_wready");
+    sc_trace(file,axilRegBlock_bvalid,"axilRegBlock_bvalid");
+    sc_trace(file,axilRegBlock_bready,"axilRegBlock_bready");
+    sc_trace(file,axilRegBlock_arvalid,"axilRegBlock_arvalid");
+    sc_trace(file,axilRegBlock_arready,"axilRegBlock_arready");
+    sc_trace(file,axilRegBlock_rvalid,"axilRegBlock_rvalid");
+    sc_trace(file,axilRegBlock_rready,"axilRegBlock_rready");
+  }
+
   explicit xdma_signal(const sc_core::sc_module_name& name)
       : sc_module(name),
         bypass_channel("xdma-bypass-signal"),
@@ -349,7 +400,19 @@ class xdma_signal : public sc_core::sc_module {
         axilRegBlock_awaddr_typeAdpater("axilRegBlock_awaddr"),
         axilRegBlock_araddr_typeAdpater("axilRegBlock_araddr"),
         axilRegBlock_wdata("axilRegBlock_wdata"),
-        axilRegBlock_rdata("axilRegBlock_rdata") {}
+        axilRegBlock_rdata("axilRegBlock_rdata"),
+        en_rdma_datastream_input_put("en_rdma_datastream_input_put"),
+        rdy_rdma_datastream_input_put("rdy_rdma_datastream_input_put"),
+        rdy_rdma_datastream_pipeout_first("rdy_rdma_datastream_pipeout_first"),
+        en_rdma_datastream_pipeout_deq("en_rdma_datastream_pipeout_deq"),
+        rdy_rdma_datastream_pipeout_deq("rdy_rdma_datastream_pipeout_deq"),
+        rdma_datastream_pipeout_notempty("rdma_datastream_pipeout_notempty"),
+        rdy_rdma_datastream_pipeout_notempty(
+            "rdy_rdma_datastream_pipeout_notempty"),
+        rdma_datastream_input_put("rdma_datastream_input_put"),
+        rdma_datastream_pipeout_first("rdma_datastream_pipeout_first"),
+        clk_gate_slowClockIfc("clk_gate_slowClockIfc"),
+        clk_slowClockIfc("clk_slowClockIfc") {}
 };
 
 #endif
