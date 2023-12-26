@@ -91,9 +91,11 @@ class xdma_descriptor_bypass : public sc_module {
   H2C_BRIDGE h2c_bridge;
   C2H_BRIDGE c2h_bridge;
 
+  // Forward TLM2 packet to AXI bridge
   tlm_utils::simple_initiator_socket<xdma_descriptor_bypass> h2c_data;
+  // Handling AXI stream from AXI bridge
   tlm_utils::simple_target_socket<xdma_descriptor_bypass> c2h_data;
-
+  // Send TLM2 request to PCIe bus
   tlm_utils::simple_initiator_socket<xdma_descriptor_bypass> pcie_bus;
 
   explicit xdma_descriptor_bypass(sc_core::sc_module_name name)
@@ -209,7 +211,6 @@ class xdma_descriptor_bypass : public sc_module {
     struct xdma_bypass_desc* current_c2h_desc;
     void* src_addr = trans.get_data_ptr();
     size_t length = trans.get_data_length();
-    // size_t streaming_width = trans.get_streaming_width();
 
     if (c2h_queue_.empty()) {
       sc_core::wait(c2h_queue_event_);
@@ -325,8 +326,6 @@ class xilinx_xdma : public sc_module {
   tlm2axilite_bridge<32, 32> user_bar;
   sc_vector<xdma_descriptor_bypass<H2C_BRIDGE, C2H_BRIDGE>>
       descriptor_bypass_channels;
-
-  // sc_vector<sc_in<bool> > usr_irq_reqv;
 
   explicit xilinx_xdma(sc_core::sc_module_name name,
                        int descriptor_bypass_channel = 1)
